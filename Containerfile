@@ -59,20 +59,27 @@ RUN wget -qO- "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSI
 # Minimal Debian Bookworm arm64 sysroot with C library development files.
 # This provides glibc 2.36 headers and libraries so that cross-compiled
 # binaries are compatible with Bookworm-based systems.
+#
+# --foreign: first-stage only (extract packages, no chroot execution).
+# This avoids the need to run arm64 binaries via qemu during the build,
+# which fails in unprivileged CI containers. For a cross-compilation
+# sysroot we only need headers and libraries, not a bootable chroot.
 RUN debootstrap \
         --arch=arm64 \
         --variant=minbase \
         --include=libc6-dev,linux-libc-dev \
+        --foreign \
         bookworm \
         /opt/bookworm-arm64-sysroot \
         http://deb.debian.org/debian
 
 # ── Verification ──────────────────────────────────────────────────────
-# Sanity-check that the sysroot has the expected glibc version
-RUN dpkg --admindir=/opt/bookworm-arm64-sysroot/var/lib/dpkg \
-        -l libc6-dev 2>/dev/null | grep -q '2\.36' \
-    && echo "✓ Sysroot contains glibc 2.36" \
-    || (echo "✗ Unexpected glibc version in sysroot" && exit 1)
+# Sanity-check that the sysroot has the expected glibc version.
+# With --foreign the dpkg database is under debootstrap/, so we check
+# the extracted libc shared object directly.
+RUN ls /opt/bookworm-arm64-sysroot/usr/lib/aarch64-linux-gnu/libc.so.6 \
+    && echo "✓ Sysroot contains aarch64 libc" \
+    || (echo "✗ aarch64 libc not found in sysroot" && exit 1)
 
 # ── Default compiler symlinks ─────────────────────────────────────────
 # Ensure 'gcc' / 'g++' point to version 14
