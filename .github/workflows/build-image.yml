@@ -43,21 +43,23 @@ jobs:
 
       - name: Smoke test
         run: |
+          CTR=$(buildah from ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:build)
+
           echo "=== Compiler versions ==="
-          buildah run ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:build \
-            aarch64-linux-gnu-g++-14 --version
+          buildah run "$CTR" aarch64-linux-gnu-g++-14 --version
 
           echo "=== Sysroot glibc ==="
-          buildah run ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:build \
+          buildah run "$CTR" \
             ls -la /opt/bookworm-arm64-sysroot/usr/lib/aarch64-linux-gnu/libc.so.6
 
           echo "=== CMake version ==="
-          buildah run ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:build \
-            cmake --version
+          buildah run "$CTR" cmake --version
 
           echo "=== Cross-compile test ==="
-          buildah run ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:build \
+          buildah run "$CTR" \
             sh -c 'echo "#include <format>\n#include <print>\nint main() { std::println(\"{}\", 42); }" > /tmp/test.cpp && aarch64-linux-gnu-g++-14 -std=c++23 --sysroot=/opt/bookworm-arm64-sysroot -static-libstdc++ -static-libgcc -o /tmp/test /tmp/test.cpp && file /tmp/test'
+
+          buildah rm "$CTR"
 
       - name: Determine tags
         id: tags
