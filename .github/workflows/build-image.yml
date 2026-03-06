@@ -1,0 +1,91 @@
+name: Build and Push OCI Image
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Rebuild monthly to pick up security updates in the base image
+    - cron: '0 4 1 * *'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            buildah login -u "${{ github.actor }}" --password-stdin ghcr.io
+
+      - name: Build OCI image
+        run: |
+          buildah bud \
+            --format oci \
+            --layers \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:build \
+            -f Containerfile \
+            .
+
+      - name: Smoke test
+        run: |
+          echo "=== Compiler versions ==="
+          buildah run ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:build \
+            aarch64-linux-gnu-g++-14 --version
+
+          echo "=== Sysroot glibc ==="
+          buildah run ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:build \
+            dpkg --admindir=/opt/bookworm-arm64-sysroot/var/lib/dpkg -l libc6-dev
+
+          echo "=== CMake version ==="
+          buildah run ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:build \
+            cmake --version
+
+          echo "=== Cross-compile test ==="
+          buildah run ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:build \
+            sh -c 'echo "#include <format>\n#include <print>\nint main() { std::println(\"{}\", 42); }" > /tmp/test.cpp && aarch64-linux-gnu-g++-14 -std=c++23 --sysroot=/opt/bookworm-arm64-sysroot -static-libstdc++ -static-libgcc -o /tmp/test /tmp/test.cpp && file /tmp/test'
+
+      - name: Determine tags
+        id: tags
+        run: |
+          TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+            TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}"
+          fi
+          # Also tag with date for reproducibility
+          TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$(date +%Y%m%d)"
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+
+      - name: Tag and push
+        if: github.event_name != 'pull_request'
+        run: |
+          IFS=',' read -ra TAG_ARRAY <<< "${{ steps.tags.outputs.tags }}"
+          for tag in "${TAG_ARRAY[@]}"; do
+            buildah tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:build "$tag"
+            buildah push "$tag"
+          done
+
+      - name: Summary
+        run: |
+          echo "### OCI Image Build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Registry | \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tags | \`${{ steps.tags.outputs.tags }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Event | \`${{ github.event_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Pushed | \`${{ github.event_name != 'pull_request' }}\` |" >> $GITHUB_STEP_SUMMARY
