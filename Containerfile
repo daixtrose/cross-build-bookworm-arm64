@@ -56,34 +56,20 @@ RUN wget -qO- "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSI
     && cmake --version
 
 # ── Bookworm aarch64 sysroot ─────────────────────────────────────────
-# Minimal Debian Bookworm arm64 sysroot with C library development files.
+# Full Debian Bookworm arm64 sysroot with C library development files.
 # This provides glibc 2.36 headers and libraries so that cross-compiled
 # binaries are compatible with Bookworm-based systems.
 #
-# --foreign: first-stage only (extract packages, no chroot execution).
-# This avoids the need to run arm64 binaries via qemu during the build,
-# which fails in unprivileged CI containers. For a cross-compilation
-# sysroot we only need headers and libraries, not a bootable chroot.
+# Requires binfmt_misc + qemu-aarch64-static on the HOST kernel so
+# debootstrap can execute arm64 package scripts via QEMU emulation.
+# In CI, this is set up via docker/setup-qemu-action before the build.
 RUN debootstrap \
         --arch=arm64 \
         --variant=minbase \
         --include=libc6-dev,linux-libc-dev \
-        --foreign \
         bookworm \
         /opt/bookworm-arm64-sysroot \
         http://deb.debian.org/debian
-
-# ── Extract --include packages ────────────────────────────────────────
-# With --foreign, debootstrap downloads --include packages but only
-# queues them for second-stage extraction that never runs. Manually
-# extract libc6-dev and linux-libc-dev so the sysroot has the headers,
-# linker scripts, and static libraries needed for cross-compilation.
-RUN for deb in \
-        /opt/bookworm-arm64-sysroot/var/cache/apt/archives/libc6-dev_*_arm64.deb \
-        /opt/bookworm-arm64-sysroot/var/cache/apt/archives/linux-libc-dev_*_arm64.deb ; do \
-      echo "Extracting $(basename "$deb") ..." \
-      && dpkg-deb --extract "$deb" /opt/bookworm-arm64-sysroot/ ; \
-    done
 
 # ── Remove host's glibc 2.39 aarch64 headers ─────────────────────────
 # The GCC 14 cross-compiler has a built-in include path at
