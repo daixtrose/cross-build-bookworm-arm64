@@ -36,6 +36,7 @@ jobs:
           buildah bud \
             --format oci \
             --layers \
+            --cap-add SYS_ADMIN \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:build \
             -f Containerfile \
             .
