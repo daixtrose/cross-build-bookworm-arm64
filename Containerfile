@@ -99,6 +99,31 @@ RUN for deb in \
 RUN find /usr/aarch64-linux-gnu/include/ -maxdepth 1 \
         -not -name include -not -name c++ -exec rm -rf {} +
 
+# ── strlcpy compatibility shim ────────────────────────────────────────
+# strlcpy() was added to glibc in 2.38, but the Bookworm sysroot has
+# glibc 2.36. Upstream libmodbus (master) uses strlcpy unconditionally.
+# Provide a portable static-inline implementation in the sysroot's
+# string.h so autotools configure detects it and code compiles cleanly.
+RUN cat >> /opt/bookworm-arm64-sysroot/usr/include/string.h << 'COMPAT_EOF'
+
+/* ── strlcpy compat shim (glibc < 2.38) ────────────────────────────── */
+#ifndef __STRLCPY_COMPAT_DEFINED
+#define __STRLCPY_COMPAT_DEFINED
+#include <stddef.h>
+static __inline__ __attribute__((__unused__)) size_t
+strlcpy(char *__restrict __dst, const char *__restrict __src, size_t __dstsize)
+{
+    size_t __srclen = strlen(__src);
+    if (__dstsize > 0) {
+        size_t __cplen = __srclen < __dstsize - 1 ? __srclen : __dstsize - 1;
+        __builtin_memcpy(__dst, __src, __cplen);
+        __dst[__cplen] = '\0';
+    }
+    return __srclen;
+}
+#endif /* __STRLCPY_COMPAT_DEFINED */
+COMPAT_EOF
+
 # ── Verification ──────────────────────────────────────────────────────
 # Sanity-check that the sysroot has glibc runtime AND development files,
 # and that the host headers no longer shadow the sysroot.
