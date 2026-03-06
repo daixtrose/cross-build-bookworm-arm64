@@ -20,7 +20,7 @@ This image solves the problem by providing a **Bookworm aarch64 sysroot** alongs
 | GCC 14 aarch64 cross-compiler | 14.x (Ubuntu 24.04) | `aarch64-linux-gnu-g++-14` |
 | GCC 14 native compiler | 14.x (Ubuntu 24.04) | `g++-14` |
 | Bookworm aarch64 sysroot | glibc 2.36 | `/opt/bookworm-arm64-sysroot` |
-| CMake | 3.28+ | `cmake` |
+| CMake | 4.2.3 | `cmake` |
 | Autotools | autoconf, automake, libtool | — |
 | Packaging | dpkg-dev, rpm | — |
 

@@ -25,7 +25,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         g++-14 \
         gcc-14 \
         # Build systems
-        cmake \
         make \
         ninja-build \
         # Autotools (needed for libmodbus)
@@ -46,6 +45,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         debootstrap \
         qemu-user-static \
     && rm -rf /var/lib/apt/lists/*
+
+# ── CMake 4.2.3 ──────────────────────────────────────────────────────
+ARG CMAKE_VERSION=4.2.3
+RUN wget -qO- "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz" \
+    | tar xz -C /opt \
+    && ln -s /opt/cmake-${CMAKE_VERSION}-linux-x86_64/bin/cmake  /usr/local/bin/cmake \
+    && ln -s /opt/cmake-${CMAKE_VERSION}-linux-x86_64/bin/ctest  /usr/local/bin/ctest \
+    && ln -s /opt/cmake-${CMAKE_VERSION}-linux-x86_64/bin/cpack  /usr/local/bin/cpack \
+    && cmake --version
 
 # ── Bookworm aarch64 sysroot ─────────────────────────────────────────
 # Minimal Debian Bookworm arm64 sysroot with C library development files.
