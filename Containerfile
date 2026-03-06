@@ -73,13 +73,50 @@ RUN debootstrap \
         /opt/bookworm-arm64-sysroot \
         http://deb.debian.org/debian
 
+# ── Extract --include packages ────────────────────────────────────────
+# With --foreign, debootstrap downloads --include packages but only
+# queues them for second-stage extraction that never runs. Manually
+# extract libc6-dev and linux-libc-dev so the sysroot has the headers,
+# linker scripts, and static libraries needed for cross-compilation.
+RUN for deb in \
+        /opt/bookworm-arm64-sysroot/var/cache/apt/archives/libc6-dev_*_arm64.deb \
+        /opt/bookworm-arm64-sysroot/var/cache/apt/archives/linux-libc-dev_*_arm64.deb ; do \
+      echo "Extracting $(basename "$deb") ..." \
+      && dpkg-deb --extract "$deb" /opt/bookworm-arm64-sysroot/ ; \
+    done
+
+# ── Remove host's glibc 2.39 aarch64 headers ─────────────────────────
+# The GCC 14 cross-compiler has a built-in include path at
+# /usr/aarch64-linux-gnu/include/ (from the libc6-dev-arm64-cross
+# package). This path is NOT affected by --sysroot and takes
+# precedence over the sysroot's headers.
+#
+# The host headers define __GLIBC_MINOR__ = 39 and redirect strtoll()
+# and friends to __isoc23_strtoll() (glibc 2.38+), which are
+# unavailable on Bookworm (glibc 2.36). Remove the C library headers
+# so the compiler falls through to the sysroot's glibc 2.36 headers.
+# Keep the c++/ subdirectory (libstdc++ headers from GCC 14).
+RUN find /usr/aarch64-linux-gnu/include/ -maxdepth 1 \
+        -not -name include -not -name c++ -exec rm -rf {} +
+
 # ── Verification ──────────────────────────────────────────────────────
-# Sanity-check that the sysroot has the expected glibc version.
-# With --foreign the dpkg database is under debootstrap/, so we check
-# the extracted libc shared object directly.
+# Sanity-check that the sysroot has glibc runtime AND development files,
+# and that the host headers no longer shadow the sysroot.
 RUN ls /opt/bookworm-arm64-sysroot/usr/lib/aarch64-linux-gnu/libc.so.6 \
-    && echo "✓ Sysroot contains aarch64 libc" \
-    || (echo "✗ aarch64 libc not found in sysroot" && exit 1)
+    && echo "✓ Sysroot contains aarch64 libc.so.6 (runtime)" \
+    || (echo "✗ aarch64 libc.so.6 not found in sysroot" && exit 1)
+RUN ls /opt/bookworm-arm64-sysroot/usr/lib/aarch64-linux-gnu/libc.so \
+    && echo "✓ Sysroot contains aarch64 libc.so (linker script)" \
+    || (echo "✗ aarch64 libc.so linker script not found in sysroot" && exit 1)
+RUN ls /opt/bookworm-arm64-sysroot/usr/lib/aarch64-linux-gnu/crt1.o \
+    && echo "✓ Sysroot contains aarch64 crt1.o (C runtime startup)" \
+    || (echo "✗ aarch64 crt1.o not found in sysroot" && exit 1)
+RUN grep -q '__GLIBC_MINOR__.*36' /opt/bookworm-arm64-sysroot/usr/include/features.h \
+    && echo "✓ Sysroot headers report glibc 2.36" \
+    || (echo "✗ Sysroot headers do not report glibc 2.36" && exit 1)
+RUN test ! -f /usr/aarch64-linux-gnu/include/features.h \
+    && echo "✓ Host glibc 2.39 headers removed (no shadowing)" \
+    || (echo "✗ Host glibc 2.39 headers still present" && exit 1)
 
 # ── Default compiler symlinks ─────────────────────────────────────────
 # Ensure 'gcc' / 'g++' point to version 14
